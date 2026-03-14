@@ -1,29 +1,16 @@
 # Python
 __pycache__/
-*.py[cod]
-*.so
-*.egg-info/
-build/
-dist/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-coverage.xml
-
-# Virtual environments
+*.pyc
+*.pyo
 .venv/
-venv/
-env/
+*.egg-info/
 
-# Jupyter
-.ipynb_checkpoints/
+# Runtime artifacts
+outputs/
+*.parquet
 
-# OS / editor
-.DS_Store
-.vscode/
+# IDE
 .idea/
-
-# Logs
-*.log
-
+.vscode/
+*.swp
+.DS_Store
