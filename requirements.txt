@@ -1,8 +1,26 @@
+# ── Mesa ABM layer ────────────────────────────────────────────────────────
 mesa==1.2.1
 networkx==3.5
-matplotlib==3.10.7
+
+# ── Core numerics ─────────────────────────────────────────────────────────
+numpy==2.4.3
+scipy==1.17.1
 pandas==2.3.3
-numpy==2.3.4
-scipy==1.16.3
-ipywidgets==8.1.8
+
+# ── PyTorch tensor engine (CPU wheel; swap for +cu121 on CUDA machines) ───
+torch==2.10.0
+
+# ── Graph neural network pipeline ─────────────────────────────────────────
+torch_geometric==2.7.0
+pyarrow==23.0.1
+
+# ── Sensitivity analysis ──────────────────────────────────────────────────
+SALib==1.5.2
+joblib==1.5.3
+
+# ── Visualisation ─────────────────────────────────────────────────────────
+matplotlib==3.10.8
 seaborn==0.13.2
+
+# ── Notebooks ─────────────────────────────────────────────────────────────
+ipywidgets==8.1.8
