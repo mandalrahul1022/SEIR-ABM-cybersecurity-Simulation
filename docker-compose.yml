@@ -1,0 +1,41 @@
+# docker-compose.yml — SEIR-ABM Cybersecurity Simulation
+#
+# Usage:
+#   docker compose up                   # run all phases
+#   docker compose run pipeline         # simulation only
+#   docker compose run sobol            # sensitivity analysis only
+#   docker compose run gnn              # GNN training only
+
+services:
+  # Full suite: pipeline → Sobol → GNN
+  simulation:
+    build: .
+    environment:
+      - RUN_MODE=all
+    volumes:
+      - ./results:/app/outputs
+
+  # Individual services for selective execution
+  pipeline:
+    build: .
+    environment:
+      - RUN_MODE=pipeline
+    volumes:
+      - ./results:/app/outputs
+    profiles: ["selective"]
+
+  sobol:
+    build: .
+    environment:
+      - RUN_MODE=sobol
+    volumes:
+      - ./results:/app/outputs
+    profiles: ["selective"]
+
+  gnn:
+    build: .
+    environment:
+      - RUN_MODE=gnn
+    volumes:
+      - ./results:/app/outputs
+    profiles: ["selective"]

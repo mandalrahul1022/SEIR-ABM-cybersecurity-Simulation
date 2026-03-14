@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+outputs/
+.git/
+.github/
+.DS_Store
+*.egg-info/
+.idea/
+.vscode/
+.cursor/
