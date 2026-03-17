@@ -14,3 +14,14 @@ outputs/
 .vscode/
 *.swp
 .DS_Store
+results/
+outputs_tgcn/
+
+# Local virtualenvs (do not commit)
+stitch_env/
+
+# Model / intermediate artifacts
+*.pt
+
+# Assistant scratch files
+claude.md
