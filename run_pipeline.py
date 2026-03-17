@@ -47,116 +47,87 @@ INITIAL_INFECTED:       int   = 5
 SEED:                   int   = 42
 OUTPUT_DIR:             pathlib.Path = pathlib.Path("outputs/run_001")
 
-# ---- Reproducibility ----------------------------------------------------
-torch.manual_seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(SEED)
-
 # =========================================================================
-# Step 1 — Build graph and static structures
+# Step 1 — Simulation Generator Encapsulation
 # =========================================================================
-print(f"Device: {device}")
-print("Building BA graph and sparse adjacency matrix...")
-adj_matrix_base: Tensor = build_sparse_adj_matrix()           # shape (N, N), sparse float32
 
-print("Computing static hub mask (top 10% degree nodes)...")
-hub_mask: Tensor = compute_static_hub_mask(adj_matrix_base)   # shape (N,), bool
+def execute_simulation(seed: int, output_dir: pathlib.Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        
+    print(f"[{output_dir.name}] Building BA graph with seed {seed}...")
+    adj_matrix_base: Tensor = build_sparse_adj_matrix()           
+    hub_mask: Tensor = compute_static_hub_mask(adj_matrix_base)   
 
-# ---- Pre-simulation spectral calibration --------------------------------
-spectral_radius, lambda_c, is_unstable = calculate_epidemic_threshold(adj_matrix_base, SPREAD_CHANCE)
+    degrees: Tensor = torch.sparse.sum(adj_matrix_base, dim=1).to_dense()  
+    edge_index: Tensor = edge_index_from_sparse_adj(adj_matrix_base)       
+    
+    # Save the physical topology for the Inductive generalizer
+    torch.save(edge_index, output_dir / "edge_index.pt")
+    print(f"  Nodes: {N:,}    Edges (directed): {edge_index.shape[1]:,}")
 
-degrees: Tensor = torch.sparse.sum(adj_matrix_base, dim=1).to_dense()  # shape (N,), float32
-edge_index: Tensor = edge_index_from_sparse_adj(adj_matrix_base)       # shape (2, E), long, CPU
-print(f"  Nodes: {N:,}    Edges (directed): {edge_index.shape[1]:,}")
+    state: Tensor = initialize_node_states()                              
+    patch_queue: Tensor = torch.zeros(N, dtype=torch.bool, device=device) 
 
-# =========================================================================
-# Step 2 — Initialize state + patch queue
-# =========================================================================
-state: Tensor = initialize_node_states()                              # shape (N,), int8
-patch_queue: Tensor = torch.zeros(N, dtype=torch.bool, device=device) # shape (N,), bool
+    initial_infected_idx: Tensor = torch.randperm(N, device=device)[:INITIAL_INFECTED]
+    state[initial_infected_idx] = STATE_I
 
-initial_infected_idx: Tensor = torch.randperm(N, device=device)[:INITIAL_INFECTED]
-state[initial_infected_idx] = STATE_I
-print(f"  Initial infected nodes: {INITIAL_INFECTED}")
-
-# =========================================================================
-# Step 3 — Run simulation and stream snapshots to Parquet
-# =========================================================================
-print(f"\nRunning {NUM_TICKS}-tick simulation ({PATCHING_STRATEGY} patching, "
-      f"queue_prob={PATCH_COMPLETION_PROB}, rewire={REWIRE_RATE})...")
-exporter = SimulationExporter(
-    output_dir=OUTPUT_DIR,
-    degrees=degrees,
-    hub_mask=hub_mask,
-    filename="simulation_snapshots.parquet",
-    buffer_ticks=25,
-)
-
-peak_infected: int = 0
-
-for tick in range(NUM_TICKS):
-    state, patch_queue, _ = simulation_step(
-        state=state,
-        adj_matrix=adj_matrix_base,
-        spread_chance=SPREAD_CHANCE,
-        patching_rate=PATCHING_RATE,
-        patching_strategy=PATCHING_STRATEGY,
+    exporter = SimulationExporter(
+        output_dir=output_dir,
+        degrees=degrees,
         hub_mask=hub_mask,
-        patch_queue=patch_queue,
-        volatility_rate=VOLATILITY_RATE,
-        patch_completion_prob=PATCH_COMPLETION_PROB,
-        rewire_rate=REWIRE_RATE,
+        filename="simulation_snapshots.parquet",
+        buffer_ticks=25,
     )
-    exporter.record_tick(tick=tick, state=state, patch_queue=patch_queue)
 
-    current_infected: int = int(torch.sum(state == STATE_I).item())
-    peak_infected = max(peak_infected, current_infected)
-
-    if tick % 10 == 0 or tick == NUM_TICKS - 1:
-        n_susceptible: int = int(torch.sum(state == 0).item())
-        n_exposed:     int = int(torch.sum(state == 1).item())
-        n_infected:    int = current_infected
-        n_patched:     int = int(torch.sum(state == 3).item())
-        n_queued:      int = int(torch.sum(patch_queue).item())
-        print(
-            f"  tick {tick:>3d} | S={n_susceptible:>6,}  E={n_exposed:>5,}  "
-            f"I={n_infected:>5,}  P={n_patched:>6,}  Q={n_queued:>5,}"
+    peak_infected: int = 0
+    for tick in range(NUM_TICKS):
+        state, patch_queue, _ = simulation_step(
+            state=state,
+            adj_matrix=adj_matrix_base,
+            spread_chance=SPREAD_CHANCE,
+            patching_rate=PATCHING_RATE,
+            patching_strategy=PATCHING_STRATEGY,
+            hub_mask=hub_mask,
+            patch_queue=patch_queue,
+            volatility_rate=VOLATILITY_RATE,
+            patch_completion_prob=PATCH_COMPLETION_PROB,
+            rewire_rate=REWIRE_RATE,
         )
+        exporter.record_tick(tick=tick, state=state, patch_queue=patch_queue)
 
-parquet_path: pathlib.Path = exporter.flush()
-print(f"\nParquet snapshot written: {parquet_path}")
-print(f"Peak infected across all ticks: {peak_infected:,} / {N:,} nodes")
+        current_infected: int = int(torch.sum(state == STATE_I).item())
+        peak_infected = max(peak_infected, current_infected)
+
+    parquet_path: pathlib.Path = exporter.flush()
+    print(f"  Peak infected: {peak_infected:,} / {N:,} nodes\n")
+
 
 # =========================================================================
-# Step 4 — Load back as PyG InMemoryDataset
+# Step 2 — Bootstrapper (Multi-Graph)
 # =========================================================================
-print("\nBuilding PyG InMemoryDataset from Parquet snapshots...")
-dataset = SEIRGraphDataset(
-    root=str(OUTPUT_DIR),
-    parquet_path=parquet_path,
-    edge_index=edge_index,
-    label_mode="tick",
-)
 
-print(f"\nDataset summary:")
-print(f"  Total Data objects (one per tick): {len(dataset)}")
-print(f"  First object:  {dataset[0]}")
-print(f"  Last  object:  {dataset[-1]}")
-print()
-
-first: object = dataset[0]
-assert first.x.shape == (N, 4),            f"x shape wrong: {first.x.shape}"
-assert first.x.dtype == torch.float32,     f"x dtype wrong: {first.x.dtype}"
-assert first.edge_index.shape[0] == 2,     f"edge_index row dim wrong: {first.edge_index.shape}"
-assert first.edge_index.dtype == torch.long, f"edge_index dtype wrong: {first.edge_index.dtype}"
-assert first.edge_index.shape[1] == edge_index.shape[1], (
-    f"edge count mismatch: dataset has {first.edge_index.shape[1]}, "
-    f"expected {edge_index.shape[1]}"
-)
-
-print("[PASS] x.shape     == (N, 4)      :", first.x.shape)
-print("[PASS] x.dtype     == float32     :", first.x.dtype)
-print("[PASS] edge_index  == (2, E)      :", first.edge_index.shape)
-print("[PASS] edge_index dtype == long   :", first.edge_index.dtype)
-print("[PASS] node count consistent across graph and feature matrix")
-print("\nPipeline complete.")
+if __name__ == "__main__":
+    print(f"Device: {device}")
+    
+    base_dir = pathlib.Path("outputs/graphs")
+    base_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate 5 distinct training topologies
+    print("\n--- Generating Training Graphs ---")
+    for i in range(5):
+        run_seed = SEED + i
+        run_dir = base_dir / f"train_{i}"
+        execute_simulation(run_seed, run_dir)
+        
+    # Generate 2 distinct testing topologies 
+    print("--- Generating Testing Graphs ---")
+    for i in range(2):
+        run_seed = SEED + 10 + i
+        run_dir = base_dir / f"test_{i}"
+        execute_simulation(run_seed, run_dir)
+        
+    print("Multi-Graph Inductive pipeline complete.")
