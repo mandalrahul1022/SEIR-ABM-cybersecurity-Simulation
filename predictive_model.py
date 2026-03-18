@@ -64,7 +64,10 @@ from tensor_engine import N, build_sparse_adj_matrix, device as engine_device
 
 # ── Hardware ──────────────────────────────────────────────────────────────
 
-if torch.backends.mps.is_available():
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print(f"Hardware Acceleration: NVIDIA CUDA ({torch.cuda.get_device_name(0)}) ONLINE")
+elif torch.backends.mps.is_available():
     device = torch.device("mps")
     print("Hardware Acceleration: Apple Metal Performance Shaders (MPS) ONLINE")
 else:

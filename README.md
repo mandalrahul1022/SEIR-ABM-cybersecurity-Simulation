@@ -1,5 +1,7 @@
 # STITCH: Scale-free Temporal InTervention & Contagion Harness
 
+[![GitHub](https://img.shields.io/github/stars/mandalrahul1022/STITCH)](https://github.com/mandalrahul1022/STITCH)
+
 > A GPU-accelerated research platform for modelling network contagion,
 > quantifying intervention efficacy, and predicting outbreak propagation
 > using Temporal Graph Neural Networks on 10,000-node scale-free networks.
@@ -62,8 +64,8 @@ process governed by stochastic diffusion on networks with power-law degree distr
 │  (7 BA graphs →     analysis.py              model.py                   │
 │   Parquet + PyG)    640 Saltelli runs         T-GCN (GCNConv + GRU)     │
 │       │                    │                  1,745 params              │
-│       │                    │                  Inductive AUC = 0.873     │
-│       ▼                    ▼                  85% Masked AUC = 0.852    │
+│       │                    │                  Inductive AUC = 0.997     │
+│       ▼                    ▼                  85% Masked AUC = 0.639    │
 │  data/parquet_export.py    sobol_indices.png                            │
 │  data/pyg_dataset.py       interaction_heatmap.png                      │
 │  zstd columnar snapshots                                                │
@@ -127,7 +129,7 @@ The heatmap confirms: `spread_chance × patching_rate = 0.204` is the strongest 
 
 ---
 
-### Finding 3 — A Temporal GCN Predicts Infections 5 Ticks Ahead on Unseen Infrastructure
+### Finding 3 — A Temporal GCN Achieves Near-Perfect Infection Prediction on Unseen Infrastructure
 
 A Temporal Graph Convolutional Network (T-GCN) processes a **4-tick sliding window** of graph state to predict per-node infection status at T+5. The architecture fuses spatial neighbor aggregation (GCNConv) with temporal memory (GRU), encoding **propagation velocity** rather than static snapshots.
 
@@ -142,9 +144,11 @@ Architecture: GCNConv(5, 16) → ReLU  [shared across all 4 ticks in window]
 
 **Inductive evaluation protocol:** The model trains on 5 BA graph topologies (seeds 42-46) and is tested on 2 **completely unseen** topologies (seeds 52-53). The test graphs have different hub positions, different edge wiring, and different simulation dynamics. The model cannot memorize the address book of any specific network.
 
+With full visibility, the T-GCN converges to **AUC 0.997** and **96.2% accuracy** on these unseen graphs, correctly flagging **95.9% of future-infected hub nodes**. The model has learned the physics of contagion propagation on power-law networks.
+
 ---
 
-### Finding 4 — The Model Retains 97.6% of Ranking Performance Under 85% Telemetry Blackout
+### Finding 4 — Partial Surveillance Costs 35.8 Points of Predictive Power
 
 **Experimental design:** Both Run A and Run B train on identical clean data with full visibility. The only difference is what the model sees **at evaluation time**. Run B masks 85% of infection states to -1 (sentinel) with a synchronized observability flag set to 0.0 for masked nodes. This is the standard partial-observability protocol: train the best model possible, then stress-test it under degraded conditions.
 
@@ -152,17 +156,19 @@ Architecture: GCNConv(5, 16) → ReLU  [shared across all 4 ticks in window]
 
 | Metric | Full Visibility | 85% Masked | Delta | Interpretation |
 |---|---|---|---|---|
-| **AUC-ROC** | **0.873** | **0.852** | **-0.021** | 97.6% of ranking ability preserved. Graph topology carries the signal. |
-| Test Accuracy | 64.8% | 53.8% | -11.0% | Threshold-dependent; misleading under 89.2% class imbalance. |
-| Hub Recall | 61.5% | 49.0% | -12.5% | Hub prediction degrades more than overall ranking. Hubs are hardest to predict blind. |
+| **AUC-ROC** | **0.997** | **0.639** | **-0.358** | Infection state is the dominant predictive feature. |
+| Test Accuracy | 96.2% | 64.8% | -31.4% | Significant degradation under telemetry blackout. |
+| Hub Recall | 95.9% | 67.1% | -28.8% | Hub prediction drops sharply without observable state. |
 
-> **Note on accuracy:** Raw accuracy appears low because 89.2% of nodes are infected at the test ticks (deep into the epidemic). A naive "predict everyone infected" classifier scores ~89% accuracy while providing zero actionable intelligence. AUC-ROC is the definitive metric because it evaluates ranking quality across all classification thresholds, independent of class imbalance.
+**What the -0.358 AUC delta means:**
 
-**What the -0.021 AUC delta means operationally:**
+The model achieves near-perfect prediction when it can observe infection status. When 85% of that information is destroyed, AUC drops to 0.639. Graph structure alone pushes the model above random (0.500) but not to operational quality. This quantifies a precise finding: **infection state observation is the dominant predictive feature, and graph topology provides a 13.9 percentage point structural floor above random chance.**
 
-In a Security Operations Center, you will never have full telemetry. Endpoints go dark. Agents fail silently. Lateral movement happens in network segments you cannot observe. The -0.021 delta proves that on power-law networks, **graph topology and temporal propagation patterns carry almost all of the predictive signal**. The model does not need to see infection status to predict where the contagion is heading. It infers propagation from structure.
+This has direct operational implications in both domains:
 
-In epidemiology, the parallel is exact: most infections are unreported, most hosts are unsampled. A model that retains 97.6% of its ranking performance under 85% surveillance blindness is operationally useful in both domains.
+In a **Security Operations Center**, this result quantifies the exact cost of telemetry gaps. An organization operating at 85% endpoint blindness loses 35.8 points of predictive power. The model mathematically proves that investing in telemetry coverage has a measurable, quantifiable return on detection capability.
+
+In **epidemiology**, the parallel is exact: incomplete surveillance degrades outbreak prediction by a measurable amount. The delta between full and partial observability directly informs resource allocation for surveillance infrastructure. Every percentage point of additional coverage translates to recoverable predictive power.
 
 ---
 
@@ -220,11 +226,13 @@ Every number in this README is reproducible from the codebase. No claim is made 
 | Transmissibility drives outcome variance | **54.8%** (Sobol ST) | `sensitivity_analysis.py` |
 | Patching rate S1-to-ST gap (largest interaction) | **0.179** | `sensitivity_analysis.py` |
 | Network rewiring contribution | **~0%** | `sobol_indices.png` |
-| T-GCN predicts infections 5 ticks ahead (inductive) | **AUC 0.873** | `predictive_model.py` |
-| T-GCN AUC under 85% masking (eval only) | **AUC 0.852** | `predictive_model.py` |
-| Ranking retention under 85% blindspot | **97.6%** | `gnn_performance.png` |
-| Hub recall (full visibility) | **61.5%** | `gnn_performance.png` |
-| Hub recall (85% masked) | **49.0%** | `gnn_performance.png` |
+| T-GCN predicts infections 5 ticks ahead (inductive) | **AUC 0.997** | `predictive_model.py` |
+| T-GCN accuracy (full visibility, inductive) | **96.2%** | `predictive_model.py` |
+| Hub recall (full visibility) | **95.9%** | `gnn_performance.png` |
+| T-GCN AUC under 85% masking (eval only) | **AUC 0.639** | `predictive_model.py` |
+| Hub recall (85% masked) | **67.1%** | `gnn_performance.png` |
+| Operational cost of 85% telemetry blindness | **-0.358 AUC** | `gnn_performance.png` |
+| Structural floor above random chance | **+0.139 AUC** | `gnn_performance.png` |
 | T-GCN parameter count | **1,745** | `predictive_model.py` |
 | Training graphs (inductive) | **5 BA topologies** (seeds 42-46) | `run_pipeline.py` |
 | Test graphs (unseen) | **2 BA topologies** (seeds 52-53) | `run_pipeline.py` |
@@ -274,17 +282,20 @@ Protocol: Train full-visibility, stress-test under masking
   RUN A: Full Visibility (100% node states observed)
   Train: clean | Eval: clean
     [FULL] Train: 460  Test: 184  Params: 1,745
+    Epoch   1/60  loss=0.1081  acc=96.4%  auc=92.3%
     ...
-    Epoch  60/60  loss=0.0708  acc=64.8%  auc=87.3%
+    Epoch  60/60  loss=0.0155  acc=96.2%  auc=99.7%
 
   RUN B: Partial Observability (85% node states HIDDEN at eval)
   Train: clean | Eval: 85% masked
     [MASKED] Train: 460  Test: 184  Params: 1,745
+    Epoch   1/60  loss=0.1031  acc=89.4%  auc=79.1%
     ...
-    Epoch  60/60  loss=0.0904  acc=53.8%  auc=85.2%
+    Epoch  60/60  loss=0.0155  acc=64.8%  auc=63.9%
 
   COMPARATIVE RESULTS
-    AUC-ROC        0.873       0.852      -0.021
+    AUC-ROC        0.997       0.639      -0.358
+    Hub Recall     95.9%       67.1%      -28.8%
 ```
 
 ---
@@ -360,8 +371,7 @@ The T-GCN architecture trained on cyber-contagion learns the **physics of diffus
 ## ⚠️ Limitations & Future Work
 
 - Single test-seed pair (52, 53); multi-seed stability harness with mean ± std is planned.
-- AUC oscillates during training (84.6% → 92.0% → 82.9% → 87.3% across epochs 20-60). A learning rate scheduler or early stopping with best-checkpoint selection would likely push full-visibility AUC above 0.90.
-- BA graphs approximate but do not fully capture edge heterogeneity.
+- BA graphs approximate but do not fully capture real-world community structure and edge heterogeneity.
 - Planned: progressive masking sweep (50-95%), degree-biased/spatial cluster masking, empirical topology replacement with real network or CDC host-contact data.
 
 ---
@@ -378,7 +388,6 @@ The T-GCN architecture trained on cyber-contagion learns the **physics of diffus
 The original Mesa agent-based model (N=200) remains in `models/university_network.py` as a legacy prototype used early in development. The interactive Mesa dashboard (`server.py`) has been removed to keep the repository focused on the 10,000-node tensor + T-GCN pipeline.
 
 ---
-
 
 ## License
 
